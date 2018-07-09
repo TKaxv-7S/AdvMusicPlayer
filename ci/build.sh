@@ -20,23 +20,13 @@ tar -xzf sourcemod.tar.gz
 mkdir include
 
 
-#下载CG头文件
-echo "Download cg_core.inc ..."
-wget "https://github.com/Kxnrl/Core/raw/master/include/cg_core.inc" -q -O include/cg_core.inc
-
-
 #下载Store头文件
 echo "Download store.inc ..."
 wget "https://github.com/Kxnrl/Store/raw/master/include/store.inc" -q -O include/store.inc
 
 
-#下载MotdEx头文件
-echo "Download motdex.inc ..."
-wget "https://github.com/Kxnrl/MotdEx/raw/master/include/motdex.inc" -q -O include/motdex.inc
-
-
 #下载MapMusic头文件
-echo "Downlaod mapmusic.inc ..."
+echo "Download mapmusic.inc ..."
 wget "https://github.com/Kxnrl/MapMusic-API/raw/master/include/mapmusic.inc" -q -O include/mapmusic.inc
 
 
@@ -56,11 +46,6 @@ if [ "$1" = "1.10" ]; then
 else 
     wget "https://github.com/KyleSanderson/SteamWorks/raw/master/Pawn/includes/SteamWorks.inc" -q -O include/steamworks.inc
 fi 
-
-#下载MagicGirl.NET头文件
-echo "Download MagicGirl/motd.inc"
-mkdir include/MagicGirl
-wget "https://github.com/PuellaMagi/Core/raw/master/Game/include/MagicGirl/motd.inc" -q -O include/MagicGirl/motd.inc
 
 
 #设置文件为可执行
@@ -119,7 +104,7 @@ echo "Upload file RSYNC ..."
 RSYNC_PASSWORD=$RSYNC_PSWD rsync -avz --port $RSYNC_PORT ./$FILE $RSYNC_USER@$RSYNC_HOST::TravisCI/AdvMusicPlayer/$1/
 
 #RAW
-if [ "$1" = "1.8" ]; then
+if [ "$1" = "1.9" ]; then
     echo "Upload RAW..."
     RSYNC_PASSWORD=$RSYNC_PSWD rsync -avz --port $RSYNC_PORT ./plugins/advmusicplayer.smx $RSYNC_USER@$RSYNC_HOST::TravisCI/_Raw/
     RSYNC_PASSWORD=$RSYNC_PSWD rsync -avz --port $RSYNC_PORT ./scripts/com.kxnrl.amp.translations.txt $RSYNC_USER@$RSYNC_HOST::TravisCI/_Raw/translations/

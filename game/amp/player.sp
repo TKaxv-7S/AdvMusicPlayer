@@ -4,13 +4,13 @@
 /*                                                                */
 /*                                                                */
 /*  File:          player.sp                                      */
-/*  Description:   An advance music player in source engine game. */
+/*  Description:   An advanced music player.                      */
 /*                                                                */
 /*                                                                */
 /*  Copyright (C) 2017  Kyle                                      */
-/*  2017/12/30 22:06:14                                           */
+/*  2018/07/04 05:37:22                                           */
 /*                                                                */
-/*  This code is licensed under the GPLv3 License    .            */
+/*  This code is licensed under the GPLv3 License.                */
 /*                                                                */
 /******************************************************************/
 
@@ -24,7 +24,7 @@ void Player_InitPlayer()
     {
         array_timer[index] = new ArrayList();
         array_lyric[index] = new ArrayList(size);
-        
+
         for(int lyric = 0; lyric < 128; ++lyric)
             delay_lyric[index][lyric] = -1.0;
     } 
@@ -54,11 +54,12 @@ void Player_Reset(int index, bool removeMotd = false)
     g_bListen[index] = false;
 
     // song info
-    g_Sound[index][iSongId] = 0;
     g_Sound[index][fLength] = 0.0;
-    g_Sound[index][szName][0] = '\0';
-    g_Sound[index][szSinger][0] = '\0';
-    g_Sound[index][szAlbum][0] = '\0';
+    g_Sound[index][szSongId][0] = '\0';
+    g_Sound[index][szTitle] [0] = '\0';
+    g_Sound[index][szArtist][0] = '\0';
+    g_Sound[index][szAlbum] [0] = '\0';
+    g_Sound[index][eEngine] = kE_Netease;
     array_timer[index].Clear();
     array_lyric[index].Clear();
 
@@ -78,52 +79,56 @@ void Player_Reset(int index, bool removeMotd = false)
 #endif
 }
 
-public Action Timer_GetLyric(Handle timer, int index)
+static void Player_LoadLyric(int index)
 {
     char path[128];
-    BuildPath(Path_SM, path, 128, "data/music/lyric_%d.lrc", g_Sound[index][iSongId]);
+    BuildPath(Path_SM, path, 128, "data/music/lyric_%s_%s.lrc", g_EngineName[g_Sound[index][eEngine]], g_Sound[index][szSongId]);
 
 #if defined DEBUG
     UTIL_DebugLog("Timer_GetLyric -> %N -> checking %s", index, path);
 #endif
 
     // checking lyric cache file.
-    if(!FileExists(path))
+    if(FileExists(path))
     {
-        char url[256];
-        g_cvarLYRICS.GetString(url, 256);
-        Format(url, 256, "%s%d", url, g_Sound[index][iSongId]);
+#if defined DEBUG
+        UTIL_DebugLog("Timer_GetLyric -> Loading Local Lyrics -> %N -> %s[%s] -> %s", index, g_Sound[index][szSongId], g_Sound[index][szTitle], path);
+#endif
+        CreateTimer(g_cvarLRCDLY.FloatValue, UTIL_ProcessLyric, index);
+        return;
+    }
+
+    char url[256];
+    g_cvarAPIURL.GetString(url, 256);
+    Format(url, 256, "%s/?action=lyrics&engine=%s&song=%s", url, g_EngineName[g_Sound[index][eEngine]], g_Sound[index][szSongId]);
 
 #if defined DEBUG
-        UTIL_DebugLog("Timer_GetLyric -> Downloading Lyrics -> %N -> %d[%s] -> %s", index, g_Sound[index][iSongId], g_Sound[index][szName], url);
+    UTIL_DebugLog("Timer_GetLyric -> Downloading Lyrics -> %N -> %s[%s] -> %s", index, g_Sound[index][szSongId], g_Sound[index][szTitle], url);
 #endif
 
-        if(g_bSystem2)
-        {
-            System2HTTPRequest hRequest = new System2HTTPRequest(API_GetLyric_System2, url);
-            hRequest.SetOutputFile(path);
-            hRequest.Any = index;
-            hRequest.GET();
-            delete hRequest;
-        }
-        else
-        {
-            Handle hRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodGET, url);
-            SteamWorks_SetHTTPCallbacks(hRequest, API_GetLyric_SteamWorks);
-            SteamWorks_SetHTTPRequestContextValue(hRequest, index);
-            SteamWorks_SendHTTPRequest(hRequest);
-            delete hRequest;
-        }
+    DataPack pack = new DataPack();
+    pack.WriteCell(index);
+    pack.WriteFloat(GetGameTime());
+    pack.Reset();
+
+    if(g_bSystem2)
+    {
+        System2HTTPRequest hRequest = new System2HTTPRequest(API_GetLyric_System2, url);
+        hRequest.Timeout = 30;
+        hRequest.SetOutputFile(path);
+        hRequest.Any = pack;
+        hRequest.GET();
+        delete hRequest;
     }
     else
     {
-#if defined DEBUG
-        UTIL_DebugLog("Timer_GetLyric -> Loading Local Lyrics -> %N -> %d[%s] -> %s", index, g_Sound[index][iSongId], g_Sound[index][szName], path);
-#endif
-        CreateTimer(0.2, UTIL_ProcessLyric, index);
+        Handle hRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodGET, url);
+        SteamWorks_SetHTTPCallbacks(hRequest, API_GetLyric_SteamWorks);
+        SteamWorks_SetHTTPRequestNetworkActivityTimeout(hRequest, 30);
+        SteamWorks_SetHTTPRequestContextValue(hRequest, pack);
+        SteamWorks_SendHTTPRequest(hRequest);
+        delete hRequest;
     }
-
-    return Plugin_Stop;
 }
 
 public Action Timer_Clear(Handle timer, int player_index)
@@ -206,7 +211,7 @@ void Player_LyricHud(int index, float hold, float fx, const char[] message)
 public Action Timer_SoundEnd(Handle timer, int index)
 {
 #if defined DEBUG
-    UTIL_DebugLog("Timer_SoundEnd -> %N -> %d[%s]", index, g_Sound[index][iSongId], g_Sound[index][szName]);
+    UTIL_DebugLog("Timer_SoundEnd -> %N -> %s[%s]", index, g_Sound[index][szSongId], g_Sound[index][szTitle]);
 #endif
 
     // reset timer
@@ -228,51 +233,52 @@ public Action Timer_SoundEnd(Handle timer, int index)
     return Plugin_Stop;
 }
 
-void Player_ListenMusic(int client, bool cached)
+void Player_ListenMusic(int client, bool cached = false)
 {
+    // reset player of index
+    Player_Reset(client, false);
+
+    // load song info
+    UTIL_ProcessSongInfo(client, g_Sound[client][szTitle], g_Sound[client][szArtist], g_Sound[client][szAlbum], g_Sound[client][fLength], g_Sound[client][szSongId], g_Sound[client][eEngine]);
+
     // if enabled cache and not precache
-    if(g_cvarECACHE.BoolValue && !cached)
+    if(!cached)
     {
 #if defined DEBUG
-        UTIL_DebugLog("Player_ListenMusic -> %N -> %d[%s] -> we need precache music", client, g_Sound[client][iSongId], g_Sound[client][szName]);
+        UTIL_DebugLog("Player_ListenMusic -> %N -> %s[%s] -> we need precache music", client, g_Sound[client][szSongId], g_Sound[client][szTitle]);
 #endif
         UTIL_CacheSong(client, client);
         return;
     }
 
-    // reset player of index
-    Player_Reset(client);
-
-    // get song info
-    int iLength;
-    UTIL_ProcessSongInfo(client, g_Sound[client][szName], g_Sound[client][szSinger], g_Sound[client][szAlbum], iLength, g_Sound[client][iSongId]);
-    g_Sound[client][fLength] = float(iLength);
-
     // init player
     char murl[192];
-    g_cvarPLAYER.GetString(murl, 192);
-    Format(murl, 192, "%s%d&volume=%d&cache=%d", murl, g_Sound[client][iSongId], g_iVolume[client], g_cvarECACHE.IntValue);
+    g_cvarAPIURL.GetString(murl, 192);
+    Format(murl, 192, "%s/?action=player&volume=%d&engine=%s&song=%s", murl, g_iVolume[client], g_EngineName[g_Sound[client][eEngine]], g_Sound[client][szSongId]);
     UTIL_OpenMotd(client, murl);
-    
+
 #if defined DEBUG
-    UTIL_DebugLog("Player_ListenMusic -> %N -> [%d]%s -> %.2f", client, g_Sound[client][iSongId], g_Sound[client][szName], g_Sound[client][fLength], murl);
+    UTIL_DebugLog("Player_ListenMusic -> %N -> [%s]%s -> %.2f", client, g_Sound[client][szSongId], g_Sound[client][szTitle], g_Sound[client][fLength], murl);
 #endif
 
     // set listen flag
     g_bListen[client] = true;
 
+    // set lock flag
+    g_bLocked[client] = false;
+
     // load lyric
     if(g_bLyrics[client])
-        CreateTimer(0.1, Timer_GetLyric, client);
+        Player_LoadLyric(client);
 
     // set song end timer
     g_tTimer[client] = CreateTimer(g_Sound[client][fLength]+0.1, Timer_SoundEnd, client);
 
-    ChatAll("%t", "client current playing", client, g_Sound[client][szName]);
+    ChatAll("%t", "client current playing", client, g_Sound[client][szTitle], g_EngineName[g_Sound[client][eEngine]], client);
 
     // re-display menu
     DisplayMainMenu(client);
-    
+
     // handle map music
     if(g_bMapMusic)
     {
@@ -281,7 +287,7 @@ void Player_ListenMusic(int client, bool cached)
     }
 }
 
-void Player_BroadcastMusic(int client, bool cached)
+void Player_BroadcastMusic(int client, bool cached = false)
 {
     // ban?
     if(g_bBanned[client])
@@ -294,49 +300,55 @@ void Player_BroadcastMusic(int client, bool cached)
     if(GetGameTime() < g_fNextPlay)
     {
 #if defined DEBUG
-        UTIL_DebugLog("Player_BroadcastMusic -> %N -> [%d]%s -> Time Out", client, g_Sound[client][iSongId], g_Sound[client][szName]);
+        UTIL_DebugLog("Player_BroadcastMusic -> %N -> [%s]%s -> Time Out", client, g_Sound[client][szSongId], g_Sound[client][szTitle]);
 #endif
         Chat(client, "%T", "last timeout", client);
         return;
     }
-
-    // if enabled cache and not precache
-    if(g_cvarECACHE.BoolValue && !cached)
-    {
-#if defined DEBUG
-        UTIL_DebugLog("Player_BroadcastMusic -> %N -> [%d]%s -> we need precache music", client, g_Sound[client][iSongId], g_Sound[client][szName]);
-#endif
-        UTIL_CacheSong(client, BROADCAST);
-        return;
-    }
-
+    
     // get song info
-    int iLength;
-    UTIL_ProcessSongInfo(client, g_Sound[BROADCAST][szName], g_Sound[BROADCAST][szSinger], g_Sound[BROADCAST][szAlbum], iLength, g_Sound[BROADCAST][iSongId]);
+    UTIL_ProcessSongInfo(client, g_Sound[BROADCAST][szTitle], g_Sound[BROADCAST][szArtist], g_Sound[BROADCAST][szAlbum], g_Sound[BROADCAST][fLength], g_Sound[BROADCAST][szSongId], g_Sound[BROADCAST][eEngine]);
 
     // if store is available, handle credits
     if(g_bStoreLib)
     {
-        int cost = RoundFloat(iLength*g_cvarCREDIT.FloatValue);
+        int cost = RoundFloat(g_Sound[BROADCAST][fLength]*g_cvarCREDIT.FloatValue);
         if(Store_GetClientCredits(client) < cost)
         {
             Chat(client, "%T", "no enough money", client, cost);
             return;
         }
         char reason[128];
-        FormatEx(reason, 128, "点歌系统点歌[%d.%s]", g_Sound[BROADCAST][iSongId], g_Sound[BROADCAST][szName]);
+        FormatEx(reason, 128, "点歌系统点歌[%s.%s]", g_Sound[BROADCAST][szSongId], g_Sound[BROADCAST][szTitle]);
         Store_SetClientCredits(client, Store_GetClientCredits(client) - cost, reason);
-        Chat(client, "%T", "cost to broadcast", client, cost, g_Sound[BROADCAST][szName]);
+        Chat(client, "%T", "cost to broadcast", client, cost, g_Sound[BROADCAST][szTitle]);
     }
 
-    g_Sound[BROADCAST][fLength] = float(iLength);
+    // if enabled cache and not precache
+    if(!cached)
+    {
+        if(g_bCaching)
+        {
+            Chat(client, "Global caching");
+            return;
+        }
 
 #if defined DEBUG
-    UTIL_DebugLog("Player_BroadcastMusic -> %N -> [%d]%s -> %.2f", client, g_Sound[BROADCAST][iSongId], g_Sound[BROADCAST][szName], g_Sound[BROADCAST][fLength]);
+        UTIL_DebugLog("Player_BroadcastMusic -> %N -> [%s]%s -> we need precache music", client, g_Sound[client][szSongId], g_Sound[client][szTitle]);
+#endif
+        UTIL_CacheSong(client, BROADCAST);
+        return;
+    }
+
+    // set lock flag
+    g_bLocked[client] = false;
+
+#if defined DEBUG
+    UTIL_DebugLog("Player_BroadcastMusic -> %N -> [%s]%s -> %.2f", client, g_Sound[BROADCAST][szSongId], g_Sound[BROADCAST][szTitle], g_Sound[BROADCAST][fLength]);
 #endif
 
-    ChatAll("%t", "broadcast", client, g_Sound[BROADCAST][szName]);
-    LogToFileEx(logFile, "\"%L\" 点播了歌曲[%s - %s]", client, g_Sound[BROADCAST][szName],  g_Sound[BROADCAST][szSinger]);
+    ChatAll("%t", "broadcast", client, g_Sound[BROADCAST][szTitle], g_EngineName[g_Sound[BROADCAST][eEngine]]);
+    LogToFileEx(logFile, "\"%L\" 点播了歌曲[%s - %s]", client, g_Sound[BROADCAST][szTitle],  g_Sound[BROADCAST][szArtist]);
 
     // set timeout
     g_fNextPlay = GetGameTime()+g_Sound[BROADCAST][fLength];
@@ -358,14 +370,14 @@ void Player_BroadcastMusic(int client, bool cached)
 
         // set playing flag
         g_bPlayed[i] = true;
-        
+
         // set song info
         g_Sound[i] = g_Sound[BROADCAST];
 
         // init player
         char murl[192];
-        g_cvarPLAYER.GetString(murl, 192);
-        Format(murl, 192, "%s%d&volume=%d&cache=%d", murl, g_Sound[BROADCAST][iSongId], g_iVolume[i], g_cvarECACHE.IntValue);
+        g_cvarAPIURL.GetString(murl, 192);
+        Format(murl, 192, "%s/?action=player&volume=%d&engine=%s&song=%s", murl, g_iVolume[i], g_EngineName[g_Sound[BROADCAST][eEngine]], g_Sound[BROADCAST][szSongId]);
         DisplayMainMenu(i);
         UTIL_OpenMotd(i, murl);
 
@@ -382,8 +394,8 @@ void Player_BroadcastMusic(int client, bool cached)
     }
 
     // load lyric
-    CreateTimer(0.1, Timer_GetLyric, BROADCAST, TIMER_FLAG_NO_MAPCHANGE);
+    Player_LoadLyric(BROADCAST);
 
     // set song end timer
-    g_tTimer[BROADCAST] = CreateTimer(g_Sound[BROADCAST][fLength]+0.1, Timer_SoundEnd, BROADCAST);
+    g_tTimer[BROADCAST] = CreateTimer(g_Sound[BROADCAST][fLength]+1.0, Timer_SoundEnd, BROADCAST);
 }

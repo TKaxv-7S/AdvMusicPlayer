@@ -4,12 +4,12 @@
 /*                     Advanced Music Player                      */
 /*                                                                */
 /*                                                                */
-/*  File:          lyrics.php                                     */
-/*  Description:   An advance music player in source engine game. */
+/*  File:          config.php                                     */
+/*  Description:   An advanced music player.                      */
 /*                                                                */
 /*                                                                */
 /*  Copyright (C) 2018  Kyle                                      */
-/*  2018/01/01 04:02:39                                           */
+/*  2018/07/04 02:02:11                                           */
 /*                                                                */
 /*  This code is licensed under the GPLv3 License.                */
 /*                                                                */
@@ -17,26 +17,16 @@
 
 
 
-error_reporting(E_ALL^E_WARNING^E_NOTICE);
+// Store music file/cover/lyric
+$config['uri_prefix']['dir'] = '/var/www/music';
 
-// library
-require_once 'NeteaseMusicAPI.php';
-require_once 'KyleUTILs.php';
+// Your website url (must end with "/")
+$config['uri_prefix']['mp3'] = 'https://music.kxnrl.com/musics/';
+$config['uri_prefix']['lrc'] = 'https://music.kxnrl.com/lyrics/';
+$config['uri_prefix']['pic'] = 'https://music.kxnrl.com/covers/';
 
-if(!isset($_GET['id']) || empty($_GET['id'])){
-    LogMessage("Lyric -> WTF YOU DOING? EMPTY PARAM!");
-    die(404);
-}
+// If you want to use shadowsocks-libev
+//$config['curl_proxy']['host'] = '127.0.0.1:1080';
+//$config['curl_proxy']['type'] = CURLPROXY_SOCKS5;
 
-// header
-Header("Content-type: text/plain; charset=UTF-8"); 
-
-$api = new NeteaseMusicAPI();
-$result = $api->lyric($_GET['id']);
-
-// get url
-$json_d = json_decode($result);
-$json_e = json_encode($json_d,JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES);
-$de_json = json_decode($json_e, true);
-print_r($de_json['lrc']['lyric']);
 ?>
